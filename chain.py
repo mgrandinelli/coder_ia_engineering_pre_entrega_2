@@ -9,7 +9,7 @@ import os
 from dotenv import load_dotenv
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import Runnable, RunnableLambda
+from langchain_core.runnables import Runnable
 
 from schemas import EntidadesTecnicas
 
@@ -103,15 +103,14 @@ def _verificar(salida: dict) -> EntidadesTecnicas:
 
 # --- Cadena LCEL con salida estructurada y reintentos ---
 def build_chain(model: BaseChatModel, espera: bool = True) -> Runnable[dict, EntidadesTecnicas]:
-    extraccion = model.with_structured_output(EntidadesTecnicas, include_raw=True)
+    chain = prompt | model.with_structured_output(EntidadesTecnicas, include_raw=True) | _verificar
     # Solo se reintentan los errores de formato. Los transitorios (red, 429) ya los reintenta
     # el SDK del proveedor, y reintentar los permanentes (clave inválida) sería gastar llamadas.
-    con_reintentos = (extraccion | RunnableLambda(_verificar)).with_retry(
+    return chain.with_retry(
         retry_if_exception_type=(SalidaInvalidaError,),
         wait_exponential_jitter=espera,  # backoff exponencial entre intentos
         stop_after_attempt=MAX_INTENTOS,
     )
-    return prompt | con_reintentos
 
 
 model = build_model()

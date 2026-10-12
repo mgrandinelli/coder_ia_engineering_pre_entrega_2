@@ -5,7 +5,8 @@ Curso AI Engineering (Coderhouse), módulo 2.
 Un pipeline de extracción de entidades técnicas. Recibe un párrafo de texto sin procesar (una descripción de arquitectura o un log de error) y devuelve un objeto validado con Pydantic: las tecnologías mencionadas, el nivel de criticidad y un resumen técnico.
 
 ```python
-chain = prompt | model.with_structured_output(EntidadesTecnicas)   # más verificación y .with_retry()
+chain = prompt | model.with_structured_output(EntidadesTecnicas, include_raw=True) | _verificar
+chain = chain.with_retry(stop_after_attempt=3, ...)
 resultado = await process_text("API en FastAPI con caché en Redis...")
 ```
 
@@ -91,13 +92,12 @@ Las restricciones están en validadores de Pydantic y no en el esquema JSON que 
 ### Cadena LCEL
 
 ```python
-extraccion = model.with_structured_output(EntidadesTecnicas, include_raw=True)
-con_reintentos = (extraccion | RunnableLambda(_verificar)).with_retry(
+chain = prompt | model.with_structured_output(EntidadesTecnicas, include_raw=True) | _verificar
+chain = chain.with_retry(
     retry_if_exception_type=(SalidaInvalidaError,),
     wait_exponential_jitter=True,
     stop_after_attempt=3,
 )
-chain = prompt | con_reintentos
 ```
 
 El recorrido de los datos es:
@@ -105,7 +105,7 @@ El recorrido de los datos es:
 1. `prompt` arma los mensajes con el texto y las instrucciones de formato.
 2. `model.with_structured_output(EntidadesTecnicas, include_raw=True)` devuelve el mensaje crudo del modelo, el objeto ya validado y, si lo hubo, el error de validación.
 3. `_verificar` revisa primero el `finish_reason`: si la respuesta se cortó por falta de tokens (`length` en OpenAI, `max_tokens` en Anthropic), lanza `RespuestaIncompletaError` antes de usar el objeto. Después revisa el error de validación y, si existe, lanza `SalidaInvalidaError`.
-4. `.with_retry()` repite los pasos 2 y 3 hasta 3 veces, con espera exponencial entre intentos.
+4. `.with_retry()` repite la cadena hasta 3 veces, con espera exponencial entre intentos.
 
 ### Qué se reintenta y qué no
 
@@ -157,7 +157,7 @@ pytest -v
 Cubren los cuatro criterios de la rúbrica:
 
 - **Esquema y salida estructurada:** el ejemplo de la consigna valida; lista vacía, criticidad desconocida y resumen corto se rechazan; la cadena devuelve un `EntidadesTecnicas`.
-- **Cadena LCEL y prompt:** `chain` es `prompt` seguido del modelo estructurado con reintentos; el prompt tiene roles `system` y `human` y recibe el texto y las instrucciones de formato.
+- **Cadena LCEL y prompt:** `chain` es `prompt | modelo estructurado | verificación`, envuelta en reintentos; el prompt tiene roles `system` y `human` y recibe el texto y las instrucciones de formato.
 - **Asincronía y resiliencia:** se reintenta ante una salida inválida y ante una respuesta cortada; se abandona al tercer intento; un error que no es de formato no se reintenta; los logs registran validación y reintentos.
 - **Script de prueba:** `process_text()`, `process_batch()` y `main()` funcionan sin argumentos y sin clave, sin interrumpirse.
 
@@ -176,7 +176,7 @@ test_main.py::test_el_esquema_rechaza_datos_invalidos[campos2] PASSED    [ 19%]
 test_main.py::test_el_esquema_rechaza_datos_invalidos[campos3] PASSED    [ 23%]
 test_main.py::test_el_esquema_limpia_y_deduplica_las_tecnologias PASSED  [ 28%]
 test_main.py::test_la_cadena_devuelve_un_objeto_validado PASSED          [ 33%]
-test_main.py::test_la_cadena_del_modulo_es_prompt_mas_modelo_estructurado_con_reintentos PASSED [ 38%]
+test_main.py::test_la_cadena_del_modulo_es_prompt_y_modelo_estructurado_con_reintentos PASSED [ 38%]
 test_main.py::test_el_prompt_recibe_el_texto_y_las_instrucciones_de_formato PASSED [ 42%]
 test_main.py::test_reintenta_cuando_la_salida_no_cumple_el_esquema PASSED [ 47%]
 test_main.py::test_reintenta_cuando_la_respuesta_se_corta_por_tokens PASSED [ 52%]
@@ -191,5 +191,5 @@ test_main.py::test_process_text_sin_argumentos_ni_clave_no_se_rompe PASSED [ 90%
 test_main.py::test_process_batch_procesa_varios_textos_y_aisla_los_fallos PASSED [ 95%]
 test_main.py::test_main_corre_sin_clave_y_sin_romperse PASSED            [100%]
 
-============================== 21 passed in 0.89s ==============================
+============================== 21 passed in 0.91s ==============================
 ```

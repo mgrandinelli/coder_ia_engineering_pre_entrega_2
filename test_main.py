@@ -10,6 +10,7 @@ import pytest
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import RunnableSequence
 from langchain_core.runnables.retry import RunnableRetry
 from pydantic import ValidationError
 
@@ -110,10 +111,11 @@ async def test_la_cadena_devuelve_un_objeto_validado():
 # --- Cadena LCEL y prompt ---
 
 
-async def test_la_cadena_del_modulo_es_prompt_mas_modelo_estructurado_con_reintentos():
-    assert pipeline.chain.first is pipeline.prompt
-    assert isinstance(pipeline.chain.last, RunnableRetry)
-    assert pipeline.chain.last.max_attempt_number == pipeline.MAX_INTENTOS
+async def test_la_cadena_del_modulo_es_prompt_y_modelo_estructurado_con_reintentos():
+    assert isinstance(pipeline.chain, RunnableRetry)
+    assert pipeline.chain.max_attempt_number == pipeline.MAX_INTENTOS
+    assert isinstance(pipeline.chain.bound, RunnableSequence)
+    assert pipeline.chain.bound.first is pipeline.prompt
 
 
 async def test_el_prompt_recibe_el_texto_y_las_instrucciones_de_formato():
